@@ -1,0 +1,7 @@
+# Group Number, Case,        InstCnt, MemAccess, Misses, MicroSeconds
+26,   NaiveFA,0,0,0,0
+26,   Naive2Way,0,0,0,0
+26,   NaiveDirect,0,0,0,0
+26,   FastFA,0,0,0,0
+26,   Fast2Way,0,0,0,0
+26,   FastDirect,0,0,0,0
