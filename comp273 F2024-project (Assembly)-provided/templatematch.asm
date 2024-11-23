@@ -4,7 +4,7 @@ displayBuffer:  .space 0x40000 # space for 512x256 bitmap display
 errorBuffer:    .space 0x40000 # space to store match function
 templateBuffer: .space 0x100   # space for 8x8 template
 imageFileName:    .asciiz "pxlcon512x256cropgs.raw" 
-templateFileName: .asciiz "template8x8gs.raw"
+templateFileName: .asciiz "template8x8gsLRtest.raw"
 # struct bufferInfo { int *buffer, int width, int height, char* filename }
 imageBufferInfo:    .word displayBuffer  512 128  imageFileName
 errorBufferInfo:    .word errorBuffer    512 128  0
@@ -33,97 +33,98 @@ main:	la $a0, imageBufferInfo
 ##########################################################
 # matchTemplate( bufferInfo imageBufferInfo, bufferInfo templateBufferInfo, bufferInfo errorBufferInfo )
 # NOTE: struct bufferInfo { int *buffer, int width, int height, char* filename }
-matchTemplate:	
+matchTemplate:
     # Load image buffer, width, and height
-    lw $s0, 0($a0)       # $s0 = image buffer
-    lw $s1, 4($a0)       # $s1 = image width
-    lw $s2, 8($a0)       # $s2 = image height
+    lw $s0, 0($a0)      # $s0 = image buffer
+    lw $s1, 4($a0)      # $s1 = image width
+    lw $s2, 8($a0)      # $s2 = image height
 
     # Load template buffer
-    lw $s3, 0($a1)       # $s3 = template buffer
+    lw $s3, 0($a1)      # $s3 = template buffer
 
     # Load error buffer
-    lw $s4, 0($a2)       # $s4 = error buffer
+    lw $s4, 0($a2)      # $s4 = error buffer
 
-    subi $s5, $s2, 8     # $s5 = height - 8
-    subi $s6, $s1, 8     # $s6 = width - 8
-
-    # Outer loop:
-    li $t0, 0            # $t0: int y = 0
+    # Outer loop: y
+    li $t0, 0           # $t0 : int y = 0 (image row index)
 
 outer_y_loop:
-    bgt $t0, $s5, done   # if y > height - 8, break
+    blt $s2, $t0, done  # if image height < y, break
+    sub $s5, $s2, 8     # $s5 = height - 8
+    bgt $t0, $s5, done  # if y > height - 8, break
 
     # Inner loop: x
-    li $t1, 0            # $t1: int x = 0
-
+    li $t1, 0           # $t1 : int x = 0 (image column index)
 inner_x_loop:
+    sub $s6, $s1, 8     # $s6 = width - 8
     bgt $t1, $s6, outer_y_continue
 
-    # Reinitialize SAD after each template coverage
-    li $t7, 0            # $t7 = SAD accumulator
+    li $t9, 0           # $t9 : SAD accumulator
 
-    li $t2, 0            # $t2 : int j = 0 (template row index)
+    li $t2, 0           # $t2 : int j = 0 (template row index)
 
 compute_sad_row:
-    bge $t2, 8, sad_done # if j >= 8, done
+    # if j >= 8, slide template over image by one pixel
+    # Store SAD in error buffer then reset it.
+    bge $t2, 8, sad_done
 
-    li $t3, 0            # $t4 : int i = 0 (template column index)
+    li $t3, 0           # $t3 : int i = 0 (template column index)
 
 compute_sad_col:
-    bge $t3, 8, next_row # if i >= 8, done
+    # if i >= 8, slide over to next row
+    bge $t3, 8, next_row
 
-    # We have to imagine that image is flattened into a 1D array, so when
-    # we iterate over the width of the template and want to "move down",
-    # we have to jump over an entire image width to obtain the correct pixel
-    # Thus the pixel index is given by:
+    # Entire image is flattened into 1D array in memory. When j increments,
+    # we need to jump over the 1D array by the width of the image to catch
+    # the next row. Thus the pixel index as a function of y, x, j and i is:
     # (y + j) * width + (x + i)
-    add $t4, $t0, $t2      # $t4 = (y + j)
-    mul $t4, $t4, $s1      # $t4 = (y + j) * width
-    add $t4, $t4, $t1      # $t4 = (y + j) * width + x
-    add $t4, $t4, $t3      # $t4 = (y + j) * width + (x + i)
-    sll $t4, $t4, 2        # Multiply by 4 for byte offset
-    add $t4, $t4, $s0      # $t4 = pixel relative to memory location of image
+    add $t4, $t0, $t2   # $a0 = (y + j)
+    mul $t4, $t4, $s1   # $a0 = (y + j) * width
+    add $t4, $t4, $t1   # $a0 = (y + j) * width + x
+    add $t4, $t4, $t3   # $a0 = (y + j) * width + (x + i)
+    sll $t4, $t4, 2     # Multiply by 4 bytes for word alignment
+    add $t4, $t4, $s0   # Index is relative to image buffer address in memory
 
-    # Same idea for template, but this time the width is known so we jump
-    # by units of 8 each time we move down a row of the template.
-    # Compute the template index: j * 8 + i
-    mul $t5, $t2, 8        # $t5 = j * 8
-    add $t5, $t5, $t3      # $t5 = j * 8 + i
-    sll $t5, $t5, 2        # Multiply by 4 for byte offset
-    add $t5, $t5, $s3      # $t5 = pixel relative to memory location of template
+    # The same applies to the template, which is also flattened into an int[64]
+    # array instead of some 2D 8x8 array. We again jump by its width, namely 8
+    mul $t5, $t2, 8     # $a1 = j * 8
+    add $t5, $t5, $t3   # $a1 = j * 8 + i
+    sll $t5, $t5, 2     # Multiply by 4 bytesr for word alignment
+    add $t5, $t5, $s3   # Index is relative to template buffer address in memry
 
     # Compute SAD: abs(image - template)
-    lb $t6, 0($t4)          # Load image pixel into $t6
-    lb $t7, 0($t5)          # Load template pixel into $t7
-    sub $t8, $t6, $t7      # $t8 = image - template
-    abs $t8, $t8           # Take absolute value
-    add $t7, $t7, $t8      # Accumulate SAD into $t7
+    lb $t6, 0($t4)      # Load image pixel
+    lb $t7, 0($t5)      # Load template pixel
+    sub $t8, $t6, $t7   # image - template
+    abs $t8, $t8        # Absolute value
+    add $t9, $t9, $t8   # Accumulate SAD
 
-    addi $t3, $t3, 1       # Increment template column index (i)
-    j compute_sad_col      # Repeat for the next column
+    addi $t3, $t3, 1    # i++
+    j compute_sad_col
 
 next_row:
-    addi $t2, $t2, 1       # Increment template row index (j)
-    j compute_sad_row      # Repeat for the next row
+    addi $t2, $t2, 1    # j++
+    j compute_sad_row
 
 sad_done:
-    # Store the computed SAD value in the error buffer
-    mul $t4, $t0, $s6      # $t4 = y * (width - 8)
-    add $t4, $t4, $t1      # $t4 = y * (width - 8) + x
-    sll $t4, $t4, 2        # Multiply by 4 for byte offset
-    add $t4, $t4, $s4      # $t4 = address in the error buffer
-    sw $t7, 0($t4)         # Store SAD value
+    # Store SAD in error buffer. Error buffer shares characteristics of image.
+    # Out of t registers at this point. Overwriting $t4. No conflict since we
+    # loop back by this point.
+    mul $t4, $t0, $s1   # $t4 = y * width
+    add $t4, $t4, $t1   # $t4 += x
+    sll $t4, $t4, 2     # Byte offset
+    add $t4, $t4, $s4   # Index is relative to error buffer address in memory
+    sw $t9, 0($t4)      # Store SAD at offset
 
-    addi $t1, $t1, 1       # Increment x (search window column index)
-    j inner_x_loop         # Repeat for the next x position
+    addi $t1, $t1, 1    # x++
+    j inner_x_loop
 
 outer_y_continue:
-    addi $t0, $t0, 1       # Increment y (search window row index)
-    j outer_y_loop         # Repeat for the next y position
+    addi $t0, $t0, 1    # y++
+    j outer_y_loop
 
 done:
-    jr $ra                 # Return from the function	
+    jr $ra
 
 ##########################################################
 # matchTemplateFast( bufferInfo imageBufferInfo, bufferInfo templateBufferInfo, bufferInfo errorBufferInfo )
