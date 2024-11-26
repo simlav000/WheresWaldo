@@ -18,7 +18,7 @@ main:	la $a0, imageBufferInfo
 	la $a0, imageBufferInfo
 	la $a1, templateBufferInfo
 	la $a2, errorBufferInfo
-	jal matchTemplate        # MATCHING DONE HERE
+	jal matchTemplateFast        # MATCHING DONE HERE
 	la $a0, errorBufferInfo
 	jal findBest
 	la $a0, imageBufferInfo
@@ -131,7 +131,97 @@ done:
 # NOTE: struct bufferInfo { int *buffer, int width, int height, char* filename }
 matchTemplateFast:	
 	
-	# TODO: write this function!
+
+    # Load image buffer info
+    lw $s0, 0($a0)       # $s0 = image buffer base address
+    lw $s1, 4($a0)       # $s1 = image width
+    lw $s2, 8($a0)       # $s2 = image height
+
+    # Load template buffer info
+    lw $s3, 0($a1)       # $s3 = template buffer base address
+
+    # Load error buffer info
+    lw $s4, 0($a2)       # $s4 = error buffer base address
+
+    # Calculate limits for looping
+    addi $s5, $s1, -8    # $s5 = width - 8
+    addi $s6, $s2, -8    # $s6 = height - 8
+
+    # Outer loop: iterate over image rows (y)
+    li $t0, 0            # $t0 = y (image row index)
+row_loop_fast:
+    bgt $t0, $s6, fast_done  # If y > height - 8, exit
+
+    # Inner loop: iterate over image columns (x)
+    li $t1, 0            # $t1 = x (image column index)
+col_loop_fast:
+    bgt $t1, $s5, next_row_fast  # If x > width - 8, go to next row
+
+    # Initialize SAD accumulator
+    li $t2, 0            # $t2 = SAD accumulator
+
+    # Loop through template rows (j)
+    li $t3, 0            # $t3 = template row index
+template_row_loop_fast:
+    bge $t3, 8, store_sad_fast  # If j >= 8, exit template row loop
+
+    # Loop through template columns (i)
+    li $t4, 0            # $t4 = template column index
+template_col_loop_fast:
+    bge $t4, 8, next_template_row_fast  # If i >= 8, go to next template row
+
+    # Calculate image and template addresses
+    mul $t5, $t3, $s1    # $t5 = (y + j) * width (row offset in image)
+    add $t5, $t5, $t0    # $t5 += y
+    add $t5, $t5, $t1    # $t5 += x
+    add $t5, $t5, $t4    # $t5 += i
+    sll $t5, $t5, 2      # Convert to byte offset (4 bytes per pixel)
+    add $t5, $t5, $s0    # $t5 = address of I[x+i][y+j]
+
+    mul $t6, $t3, 8      # $t6 = j * 8 (row offset in template)
+    add $t6, $t6, $t4    # $t6 += i
+    sll $t6, $t6, 2      # Convert to byte offset (4 bytes per pixel)
+    add $t6, $t6, $s3    # $t6 = address of T[i][j]
+
+    # Load image and template pixels
+    lb $t7, 0($t5)       # Load image pixel
+    lb $t8, 0($t6)       # Load template pixel
+
+    # Calculate absolute difference and accumulate
+    sub $t9, $t7, $t8    # $t9 = I[x+i][y+j] - T[i][j]
+    bltz $t9, make_pos_fast   # If $t9 < 0, make it positive
+    j skip_pos_fast
+make_pos_fast:
+    neg $t9, $t9         # Absolute value of $t9
+skip_pos_fast:
+    add $t2, $t2, $t9    # Accumulate SAD
+
+    addi $t4, $t4, 1     # i++
+    j template_col_loop_fast  # Continue with next column
+
+next_template_row_fast:
+    addi $t3, $t3, 1     # j++
+    j template_row_loop_fast  # Continue with next row
+
+store_sad_fast:
+    # Calculate error buffer address
+    mul $t5, $t0, $s1    # $t5 = y * width
+    add $t5, $t5, $t1    # $t5 += x
+    sll $t5, $t5, 2      # Convert to byte offset (4 bytes per pixel)
+    add $t5, $t5, $s4    # $t5 = address in error buffer
+
+    # Store SAD value
+    sw $t2, 0($t5)       # Store SAD at error buffer
+
+    addi $t1, $t1, 1     # x++
+    j col_loop_fast      # Continue with next column
+
+next_row_fast:
+    addi $t0, $t0, 1     # y++
+    j row_loop_fast      # Continue with next row
+
+fast_done:
+    jr $ra               # Return to caller
 	
 	jr $ra	
 	
@@ -270,3 +360,4 @@ skipClamp:	li $t2, 0xff	      # invert to make a score
 pebNotEOL:	add $t0, $t0, 4
 		bne $t0, $t1, pebLoop
 		jr $ra
+
