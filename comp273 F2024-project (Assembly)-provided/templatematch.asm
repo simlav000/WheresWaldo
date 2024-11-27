@@ -188,19 +188,69 @@ image_col_loop_fast:
     add $t8, $t8, $s9   # $t8 = (y + j) * width + x
     add $t8, $t8, $s0   # Index is relative to image buffer address in memory
 
+    # I'm out of s and t registers.
+    move $a0, $t0
+    move $a1, $t1
+    move $a2, $t2
+
+    # Calculate error buffer address
+    mul $t0, $s8, $s1    # $t0 = y * width
+    add $t0, $t0, $s9    # $t0 += x
+    add $t0, $t0, $s4    # Index relative to error buffer
+
+    lb $t1, 0($t8)       # Get first pixel value from image buffer
+
+    $t2 += SAD($t1, $a0)
+
+compute_SAD_fast:
+    # Input:
+    #	$a0: Current image pixel value
+    #	$a1: Current template pixel value
+    #	$a2: Address of current error pixel
+    # Effect:
+    #	Modifies error buffer
+
+    addi $sp, $sp, -8
+    sw $s0, 0($sp)
+    sw $s1, 4($sp)
+
+    # Compute SAD value
+    subi $s0, $a0, $a1
+    abs $s0, $s0
+
+    lb $s1, 0($a2)       # Get first pixel value from error buffer
+    add $s1, $s1, $s0    # SAD[x, y] += abs( I[x+0][y+j] - t0 );
+
+    lw $s1, 4($sp)
+    lw $s0, 0($sp)
+    addi $sp, $sp, 8
+
+    jal $ra
+
+
+
+
+
+
+
+
+
+
+
+
+
+
     #add $t8, $t8, $t3   # $t8 = (y + j) * width + (x + i)
     #sll $t8, $t8, 2     # Multiply by 4 bytes for word alignment
-
-    # Load image and template pixels
-    lb $t7, 0($t5)       # Load image pixel
-    lb $t8, 0($t6)       # Load template pixel
 
     # Calculate absolute difference and accumulate
     sub $t9, $t7, $t8    # $t9 = I[x+i][y+j] - T[i][j]
     bltz $t9, make_pos_fast   # If $t9 < 0, make it positive
     j skip_pos_fast
+
 make_pos_fast:
     neg $t9, $t9         # Absolute value of $t9
+
 skip_pos_fast:
     add $t2, $t2, $t9    # Accumulate SAD
 
@@ -211,18 +261,6 @@ next_template_row_fast:
     addi $t3, $t3, 1     # j++
     j template_row_loop_fast  # Continue with next row
 
-store_sad_fast:
-    # Calculate error buffer address
-    mul $t0, $s8, $s1    # $t5 = y * width
-    add $t0, $t0, $s9    # $t5 += x
-    sll $t0, $t0, 2      # Convert to byte offset (4 bytes per pixel)
-    add $t0, $t0, $s4    # $t5 = address in error buffer
-
-    # Store SAD value
-    sw $t2, 0($t0)       # Store SAD at error buffer
-
-    addi $t1, $t1, 1     # x++
-    j col_loop_fast      # Continue with next column
 
 next_row_fast:
     addi $t0, $t0, 1     # y++
