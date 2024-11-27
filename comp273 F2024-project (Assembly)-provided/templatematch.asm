@@ -78,17 +78,17 @@ compute_sad_col:
     # we need to jump over the 1D array by the width of the image to catch
     # the next row. Thus the pixel index as a function of y, x, j and i is:
     # (y + j) * width + (x + i)
-    add $t4, $t0, $t2   # $a0 = (y + j)
-    mul $t4, $t4, $s1   # $a0 = (y + j) * width
-    add $t4, $t4, $t1   # $a0 = (y + j) * width + x
-    add $t4, $t4, $t3   # $a0 = (y + j) * width + (x + i)
+    add $t4, $t0, $t2   # $t4 = (y + j)
+    mul $t4, $t4, $s1   # $t4 = (y + j) * width
+    add $t4, $t4, $t1   # $t4 = (y + j) * width + x
+    add $t4, $t4, $t3   # $t4 = (y + j) * width + (x + i)
     sll $t4, $t4, 2     # Multiply by 4 bytes for word alignment
     add $t4, $t4, $s0   # Index is relative to image buffer address in memory
 
     # The same applies to the template, which is also flattened into an int[64]
     # array instead of some 2D 8x8 array. We again jump by its width, namely 8
-    mul $t5, $t2, 8     # $a1 = j * 8
-    add $t5, $t5, $t3   # $a1 = j * 8 + i
+    mul $t5, $t2, 8     # $t5 = j * 8
+    add $t5, $t5, $t3   # $t5 = j * 8 + i
     sll $t5, $t5, 2     # Multiply by 4 bytesr for word alignment
     add $t5, $t5, $s3   # Index is relative to template buffer address in memry
 
@@ -147,41 +147,49 @@ matchTemplateFast:
     addi $s5, $s1, -8    # $s5 = width - 8
     addi $s6, $s2, -8    # $s6 = height - 8
 
-    # Outer loop: iterate over image rows (y)
-    li $t0, 0            # $t0 = y (image row index)
-row_loop_fast:
-    bgt $t0, $s6, fast_done  # If y > height - 8, exit
-
-    # Inner loop: iterate over image columns (x)
-    li $t1, 0            # $t1 = x (image column index)
-col_loop_fast:
-    bgt $t1, $s5, next_row_fast  # If x > width - 8, go to next row
-
-    # Initialize SAD accumulator
-    li $t2, 0            # $t2 = SAD accumulator
-
-    # Loop through template rows (j)
-    li $t3, 0            # $t3 = template row index
+    # Outer loop: iterate over template rows (j)
+    li $s7, 0            # $s7 : int j = 0 (template row index)
 template_row_loop_fast:
-    bge $t3, 8, store_sad_fast  # If j >= 8, exit template row loop
+    bge $s7, 8, fast_done  # If j >= 8, exit
 
-    # Loop through template columns (i)
-    li $t4, 0            # $t4 = template column index
-template_col_loop_fast:
-    bge $t4, 8, next_template_row_fast  # If i >= 8, go to next template row
+    # Template is flattened into an int[64] array instead of some 2D 8x8 array.
+    # We jump by its width to address the correct row, namely 8
+    mul $s8, $s7, 8     # $s8 = j * 8
+    add $s8, $t5, $s3   # Index is relative to template buffer address in memry
 
-    # Calculate image and template addresses
-    mul $t5, $t3, $s1    # $t5 = (y + j) * width (row offset in image)
-    add $t5, $t5, $t0    # $t5 += y
-    add $t5, $t5, $t1    # $t5 += x
-    add $t5, $t5, $t4    # $t5 += i
-    sll $t5, $t5, 2      # Convert to byte offset (4 bytes per pixel)
-    add $t5, $t5, $s0    # $t5 = address of I[x+i][y+j]
+    # Load all 8 template pixels of current row into 8 registers
+    lb $t0, 0($s8)
+    lb $t1, 4($s8)
+    lb $t2, 8($s8)
+    lb $t3, 12($s8)
+    lb $t4, 16($s8)
+    lb $t5, 20($s8)
+    lb $t6, 24($s8)
+    lb $t7, 28($s8)
 
-    mul $t6, $t3, 8      # $t6 = j * 8 (row offset in template)
-    add $t6, $t6, $t4    # $t6 += i
-    sll $t6, $t6, 2      # Convert to byte offset (4 bytes per pixel)
-    add $t6, $t6, $s3    # $t6 = address of T[i][j]
+    # Inner loop: iterate over image rows (y)
+    li $s8, 0            # $s8 : int y = 0 (image row index)
+
+row_loop_fast:
+    bgt $s8, $s6, next_row_fast  # If y > height - 8, go to next row
+
+    # Loop through image cols (x)
+    li $s9, 0            # $s9 : int x = 0 (image col index)
+
+image_col_loop_fast:
+    bgt $s9, $s5, img_col_done # If x >= width - 8, exit image col loop
+
+    # Entire image is flattened into 1D array in memory. When j increments,
+    # we need to jump over the 1D array by the width of the image to catch
+    # the next row. Thus the pixel index as a function of y, x, j and i is:
+    # (y + j) * width + (x + i)
+    add $t8, $s8, $s7   # $t8 = (y + j)
+    mul $t8, $t8, $s1   # $t8 = (y + j) * width
+    add $t8, $t8, $s9   # $t8 = (y + j) * width + x
+    add $t8, $t8, $s0   # Index is relative to image buffer address in memory
+
+    #add $t8, $t8, $t3   # $t8 = (y + j) * width + (x + i)
+    #sll $t8, $t8, 2     # Multiply by 4 bytes for word alignment
 
     # Load image and template pixels
     lb $t7, 0($t5)       # Load image pixel
@@ -205,13 +213,13 @@ next_template_row_fast:
 
 store_sad_fast:
     # Calculate error buffer address
-    mul $t5, $t0, $s1    # $t5 = y * width
-    add $t5, $t5, $t1    # $t5 += x
-    sll $t5, $t5, 2      # Convert to byte offset (4 bytes per pixel)
-    add $t5, $t5, $s4    # $t5 = address in error buffer
+    mul $t0, $s8, $s1    # $t5 = y * width
+    add $t0, $t0, $s9    # $t5 += x
+    sll $t0, $t0, 2      # Convert to byte offset (4 bytes per pixel)
+    add $t0, $t0, $s4    # $t5 = address in error buffer
 
     # Store SAD value
-    sw $t2, 0($t5)       # Store SAD at error buffer
+    sw $t2, 0($t0)       # Store SAD at error buffer
 
     addi $t1, $t1, 1     # x++
     j col_loop_fast      # Continue with next column
@@ -222,10 +230,6 @@ next_row_fast:
 
 fast_done:
     jr $ra               # Return to caller
-	
-	jr $ra	
-	
-	
 	
 ###############################################################
 # loadImage( bufferInfo* imageBufferInfo )
