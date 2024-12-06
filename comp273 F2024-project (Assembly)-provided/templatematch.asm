@@ -129,142 +129,132 @@ done:
 # matchTemplateFast( bufferInfo imageBufferInfo, bufferInfo templateBufferInfo, bufferInfo errorBufferInfo )
 # NOTE: struct bufferInfo { int *buffer, int width, int height, char* filename }
 matchTemplateFast:	
-
-
-
-    # Save the return address to stack
+    # Save return address
     addi $sp, $sp, -4
     sw $ra, 0($sp)
 
-    
+    # Load image and template information
     lw $s0, 0($a0)       # Image buffer base address
     lw $s1, 4($a0)       # Image width
     lw $s2, 8($a0)       # Image height
     lw $s3, 0($a1)       # Template buffer base address
     lw $s4, 0($a2)       # Error buffer base address
 
-    # Calculate the boundaries
+    # Calculate boundaries
     addi $s5, $s1, -8    # Max x-coordinate (width - 8)
     addi $s6, $s2, -8    # Max y-coordinate (height - 8)
 
-    # Outer loop iterating
-    li $t0, 0            # y = 0
+    # Iterate over template rows (j)
+    li $t0, 0            # j = 0
 row_loop_fast:
-    bgt $t0, $s6, fast_done   # Stop when y exceeds height - 8
+    bge $t0, 8, fast_done # Exit if j >= 8
 
-    # Inner loop iterating
-    li $t1, 0            # x = 0
-col_loop_fast:
-    bgt $t1, $s5, next_row_fast # Stop when x exceeds width - 8
+    # Load template row into registers
+    mul $t1, $t0, 8      # j * template width (8)
+    add $t2, $s3, $t1    # Address of template row
+    lb $t3, 0($t2)       # T[0][j]
+    lb $t4, 1($t2)       # T[1][j]
+    lb $t5, 2($t2)       # T[2][j]
+    lb $t6, 3($t2)       # T[3][j]
+    lb $t7, 4($t2)       # T[4][j]
+    lb $t8, 5($t2)       # T[5][j]
+    lb $t9, 6($t2)       # T[6][j]
+    lb $t2, 7($t2)       # T[7][j]
+
+    # Iterate over y
+    li $t1, 0            # y = 0
+inner_y_loop:
+    bgt $t1, $s6, next_row_fast # Exit if y > height - 8
+
+    # Iterate over x
+    li $t2, 0            # x = 0
+inner_x_loops:
+    bgt $t2, $s5, next_y_fast # Exit if x > width - 8
 
     # Initialize SAD
-    li $t2, 0            # SAD = 0
+    li $t4, 0            # SAD = 0
 
-    # Preload and process one row of the template
-    li $t3, 0            # Template row index (j = 0)
-template_row_loop_fast:
-    bge $t3, 8, store_sad_fast  # Stop when all 8 rows of the template are processed
+    # Compute SAD (loop unrolled)
+    mul $t5, $t1, $s1    # (y * width)
+    add $t5, $t5, $t2    # (y * width + x)
+    sll $t5, $t5, 2      # Convert to byte offset
+    add $t5, $t5, $s0    # Address in image buffer
 
-    
-    mul $t4, $t3, 8      # Template row offset (j * 8)
-    add $t5, $t0, $t3    # Current image row (y + j)
-    mul $t5, $t5, $s1    # Image row offset ((y + j) * width)
-    add $t5, $t5, $t1    # Add x-offset to get the image starting column
+    lb $t6, 0($t5)       # I[x+0][y+j]
+    sub $t6, $t6, $t3    # I[x+0][y+j] - T[0][j]
+    abs $t6, $t6         # Absolute value
+    add $t4, $t4, $t6    # Accumulate SAD
 
-    # Process the 8 columns of the current template row
-    li $t6, 0            # Template column index (i = 0)
-    
-    
-    
-    
-    
-template_col_loop_fast:
-    bge $t6, 8, next_template_row_fast # Stop when all 8 columns of the row are processed
+    addi $t5, $t5, 4     # advance to next column
+    lb $t6, 0($t5)       # I[x+1][y+j]
+    sub $t6, $t6, $t4    # I[x+1][y+j] - T[1][j]
+    abs $t6, $t6         # absolute value
+    add $t4, $t4, $t6    # accumulate SAD
 
-    # Compute the address of the current pixel
-    add $t7, $t5, $t6    # (x + i) offset in the image
-    sll $t7, $t7, 2      # Multiply by 4 for word alignment
-    add $t7, $t7, $s0    # Add base address of the image buffer
+    # Repeat for columns
+    addi $t5, $t5, 4
+    lb $t6, 0($t5)
+    sub $t6, $t6, $t5
+    abs $t6, $t6
+    add $t4, $t4, $t6
 
-    # Compute the address corresponding template pixel
-    add $t8, $t4, $t6    # (j * 8 + i) offset in the template
-    sll $t8, $t8, 2      # Multiply by 4 for word alignment
-    add $t8, $t8, $s3    # Add base address
+    addi $t5, $t5, 4
+    lb $t6, 0($t5)
+    sub $t6, $t6, $t6
+    abs $t6, $t6
+    add $t4, $t4, $t6
 
-    
-    lb $t9, 0($t7)       # Load image pixel value
-    lb $t7, 0($t8)       # Load template pixel value
+    addi $t5, $t5, 4
+    lb $t6, 0($t5)
+    sub $t6, $t6, $t7
+    abs $t6, $t6
+    add $t4, $t4, $t6
 
+    addi $t5, $t5, 4
+    lb $t6, 0($t5)
+    sub $t6, $t6, $t8
+    abs $t6, $t6
+    add $t4, $t4, $t6
 
-    sub $t9, $t9, $t7    # Difference: image - template
-    bltz $t9, make_positive_fast
-    j skip_abs_fast
-make_positive_fast:
-    neg $t9, $t9         # Take absolute value if negative
-skip_abs_fast:
-    add $t2, $t2, $t9    # Accumulate absolute difference into SAD
+    addi $t5, $t5, 4
+    lb $t6, 0($t5)
+    sub $t6, $t6, $t9
+    abs $t6, $t6
+    add $t4, $t4, $t6
 
-    # Increment the column index (i++)
-    addi $t6, $t6, 1
-    j template_col_loop_fast
+    addi $t5, $t5, 4
+    lb $t6, 0($t5)
+    sub $t6, $t6, $t2    # T[7][j]
+    abs $t6, $t6
+    add $t4, $t4, $t6
 
-next_template_row_fast:
-    # Increment the row index (j++)
-    addi $t3, $t3, 1
-    j template_row_loop_fast
-
-store_sad_fast:
-
-    mul $t3, $t0, $s1    # y * width
-    add $t3, $t3, $t1    # Add x
+    # Store SAD in error buffer
+    mul $t3, $t1, $s1    # y * width
+    add $t3, $t3, $t2    # (y * width + x)
     sll $t3, $t3, 2      # Convert to byte offset
-    add $t3, $t3, $s4    # Add base address of the error buffer
-    sw $t2, 0($t3)       # Write the SAD value to the error buffer
+    add $t3, $t3, $s4    # Address in error buffer
+    sw $t4, 0($t3)       # Store SAD
 
-    # Increment the column index (x++) and continue
+    # Increment x
+    addi $t2, $t2, 1
+    j inner_x_loop
+
+next_y_fast:
+    # Increment y
     addi $t1, $t1, 1
-    j col_loop_fast
+    j inner_y_loop
 
 next_row_fast:
-    # Increment the row index (y++) and restart column processing
+    # Increment template row (j)
     addi $t0, $t0, 1
     j row_loop_fast
 
 fast_done:
-    # Restore the return address and return
+    # Restore return address and return
     lw $ra, 0($sp)
     addi $sp, $sp, 4
     jr $ra
 
-
-
-
-compute_SAD_fast:
-    # Input:
-    #	$a0: Current image pixel value
-    #	$a1: Current template pixel value
-    #	$a2: Address of current error pixel
-    # Effect:
-    #	Modifies error buffer
-
-    addi $sp, $sp, -8
-    sw $t0, 0($sp)
-    sw $t1, 4($sp)
-
-    # Compute SAD value
-    sub $t0, $a0, $a1
-    abs $t0, $t0
-
-    lb $t1, 0($a2)       # Get first pixel value from error buffer
-    add $t1, $t1, $t0    # SAD[x, y] += ...
-    sw $t1, 0($a2)       # Store incremented value back at address
-
-    # Resore stack and temp registers
-    lw $t1, 4($sp)
-    lw $t0, 0($sp)
-    addi $sp, $sp, 8
-
-    jr $ra
 
 	
 ###############################################################
