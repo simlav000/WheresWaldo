@@ -1,13 +1,36 @@
 # Group #
+# ANSWERS TO PART 3:
+#    1) Yes, it is indeed the case that the base addresses of the image and
+#       error buffer fall into the same block of the direct mapped cache.
+#       If we assume that the .data segment starts at a base address
+#       0x10000000 (I think this is the default though it does not matter)
+#       then displayBuffer has address 0x10000000 while errorBuffer has 
+#	address 0x10040000. Thus, we can compute their cache index using:
+#	
+#	Cache_index = (Address/BlockSize) mod (NumberOfCacheBlocks)
+#
+#       In our case:
+#	BlockSize = 4 words * (32 bits/word) * (1 byte / 8 bits) = 16 bytes
+#	NumberOfCacheBlocks = 8
+#	Which for the display buffer would be:
+#	
+#	image_index = (0x10000000/16) mod (8) = 0
+#
+#	And for the error buffer it would be:
+#
+#	error_index = (0x10040000/16) mod (8) = 0
+#
+#	Thus both base addresses map to the same cache index of 0.
 .data
 displayBuffer:  .space 0x40000 # space for 512x256 bitmap display 
+		.space 32      # Align errorBuffer to block index 2 to avoid cache conflicts
 errorBuffer:    .space 0x40000 # space to store match function
 templateBuffer: .space 0x100   # space for 8x8 template
 imageFileName:    .asciiz "pxlcon512x256cropgs.raw" 
 templateFileName: .asciiz "template8x8gsLRtest.raw"
 # struct bufferInfo { int *buffer, int width, int height, char* filename }
-imageBufferInfo:    .word displayBuffer  512 128  imageFileName
-errorBufferInfo:    .word errorBuffer    512 128  0
+imageBufferInfo:    .word displayBuffer  512 16  imageFileName
+errorBufferInfo:    .word errorBuffer    512 16  0
 templateBufferInfo: .word templateBuffer 8   8    templateFileName
 
 .text
@@ -18,7 +41,7 @@ main:	la $a0, imageBufferInfo
 	la $a0, imageBufferInfo
 	la $a1, templateBufferInfo
 	la $a2, errorBufferInfo
-	jal matchTemplateFast        # MATCHING DONE HERE
+	jal matchTemplateFast    # MATCHING DONE HERE
 	la $a0, errorBufferInfo
 	jal findBest
 	la $a0, imageBufferInfo
@@ -125,13 +148,17 @@ outer_y_continue:
 
 done:
     jr $ra
+
 ##########################################################
 # matchTemplateFast( bufferInfo imageBufferInfo, bufferInfo templateBufferInfo, bufferInfo errorBufferInfo )
 # NOTE: struct bufferInfo { int *buffer, int width, int height, char* filename }
 matchTemplateFast:	
-    # Save return address
-    addi $sp, $sp, -4
-    sw $ra, 0($sp)
+
+    addi $sp, $sp, -16
+    sw $a0, 0($sp)
+    sw $a1, 4($sp)
+    sw $a2, 8($sp)
+    sw $v0, 12($sp)
 
     # Load image and template information
     lw $s0, 0($a0)       # Image buffer base address
@@ -140,119 +167,119 @@ matchTemplateFast:
     lw $s3, 0($a1)       # Template buffer base address
     lw $s4, 0($a2)       # Error buffer base address
 
-    # Calculate boundaries
-    addi $s5, $s1, -8    # Max x-coordinate (width - 8)
-    addi $s6, $s2, -8    # Max y-coordinate (height - 8)
-
     # Iterate over template rows (j)
-    li $t0, 0            # j = 0
+    li $s5, 0            # j = 0
 row_loop_fast:
-    bge $t0, 8, fast_done # Exit if j >= 8
+    bge $s5, 8, fast_done # Exit if j >= 8
 
     # Load template row into registers
-    mul $t1, $t0, 8      # j * template width (8)
-    add $t2, $s3, $t1    # Address of template row
-    lb $t3, 0($t2)       # T[0][j]
-    lb $t4, 1($t2)       # T[1][j]
-    lb $t5, 2($t2)       # T[2][j]
-    lb $t6, 3($t2)       # T[3][j]
-    lb $t7, 4($t2)       # T[4][j]
-    lb $t8, 5($t2)       # T[5][j]
-    lb $t9, 6($t2)       # T[6][j]
-    lb $t2, 7($t2)       # T[7][j]
+    mulo $s6, $s5, 32      # j * template width (8 * 4 bytes)
+    add $t8, $s6, $s3    # Address of template row
+
+    lbu $t0,  0($t8)       # T[0][j]
+    lbu $t1,  4($t8)       # T[1][j]
+    lbu $t2,  8($t8)       # T[2][j]
+    lbu $t3, 12($t8)       # T[3][j]
+    lbu $t4, 16($t8)       # T[4][j]
+    lbu $t5, 20($t8)       # T[5][j]
+    lbu $t6, 24($t8)       # T[6][j]
+    lbu $t7, 28($t8)       # T[7][j]
 
     # Iterate over y
-    li $t1, 0            # y = 0
+    li $s6, 0            # y = 0
 inner_y_loop:
-    bgt $t1, $s6, next_row_fast # Exit if y > height - 8
+    subi $s2, $s2, 8
+    bgt $s6, $s2, next_row_fast # Exit if y > height - 8
+    addi $s2, $s2, 8
 
     # Iterate over x
-    li $t2, 0            # x = 0
-inner_x_loops:
-    bgt $t2, $s5, next_y_fast # Exit if x > width - 8
+    li $s7, 0            # x = 0
+inner_x_loop:
+    subi $s1, $s1, 8
+    bgt $s7, $s1, next_y_fast # Exit if x > width - 8
+    addi $s1, $s1, 8
 
-    # Initialize SAD
-    li $t4, 0            # SAD = 0
+    add $t8, $s6, $s5    # (y + j)
+    mulo $t8, $t8, $s1    # (y + j) * width
+    add $t8, $t8, $s7    # (y + j) * width + x
+    sll $t8, $t8, 2      # Convert to byte offset
+    add $t8, $t8, $s0    # Address of image buffer
+
+    mulo $t9, $s6, $s1    # y * width
+    add $t9, $t9, $s7    # y * width + x
+    sll $t9, $t9, 2      # Convert to byte offset
+    add $t9, $t9, $s4    # Address of error buffer
+    lw $v0, 0($t9)       # Value of SAD[x,y]
 
     # Compute SAD (loop unrolled)
-    mul $t5, $t1, $s1    # (y * width)
-    add $t5, $t5, $t2    # (y * width + x)
-    sll $t5, $t5, 2      # Convert to byte offset
-    add $t5, $t5, $s0    # Address in image buffer
+    lbu $a0, 0($t8)      # I[x+0][y+j]
+    sub $a0, $a0, $t0    # I[x+0][y+j] - T[0][j]
+    abs $a0, $a0         # Absolute value
+    add $v0, $v0, $a0    # Accumulate SAD
+    # $t0 is usable now
 
-    lb $t6, 0($t5)       # I[x+0][y+j]
-    sub $t6, $t6, $t3    # I[x+0][y+j] - T[0][j]
-    abs $t6, $t6         # Absolute value
-    add $t4, $t4, $t6    # Accumulate SAD
+    lbu $a0, 4($t8)      # I[x+1][y+j]
+    sub $a0, $a0, $t1    # I[x+1][y+j] - T[1][j]
+    abs $a0, $a0         # absolute value
+    add $v0, $v0, $a0    # accumulate SAD
 
-    addi $t5, $t5, 4     # advance to next column
-    lb $t6, 0($t5)       # I[x+1][y+j]
-    sub $t6, $t6, $t4    # I[x+1][y+j] - T[1][j]
-    abs $t6, $t6         # absolute value
-    add $t4, $t4, $t6    # accumulate SAD
+    # You get the picture: Repeat for the rest
+    lbu $a0, 8($t8)
+    sub $a0, $a0, $t2
+    abs $a0, $a0
+    add $v0, $v0, $a0
 
-    # Repeat for columns
-    addi $t5, $t5, 4
-    lb $t6, 0($t5)
-    sub $t6, $t6, $t5
-    abs $t6, $t6
-    add $t4, $t4, $t6
+    lbu $a0, 12($t8)
+    sub $a0, $a0, $t3
+    abs $a0, $a0
+    add $v0, $v0, $a0
 
-    addi $t5, $t5, 4
-    lb $t6, 0($t5)
-    sub $t6, $t6, $t6
-    abs $t6, $t6
-    add $t4, $t4, $t6
+    lbu $a0, 16($t8)
+    sub $a0, $a0, $t4
+    abs $a0, $a0
+    add $v0, $v0, $a0
 
-    addi $t5, $t5, 4
-    lb $t6, 0($t5)
-    sub $t6, $t6, $t7
-    abs $t6, $t6
-    add $t4, $t4, $t6
+    lbu $a0, 20($t8)
+    sub $a0, $a0, $t5
+    abs $a0, $a0
+    add $v0, $v0, $a0
 
-    addi $t5, $t5, 4
-    lb $t6, 0($t5)
-    sub $t6, $t6, $t8
-    abs $t6, $t6
-    add $t4, $t4, $t6
+    lbu $a0, 24($t8)
+    sub $a0, $a0, $t6
+    abs $a0, $a0
+    add $v0, $v0, $a0
 
-    addi $t5, $t5, 4
-    lb $t6, 0($t5)
-    sub $t6, $t6, $t9
-    abs $t6, $t6
-    add $t4, $t4, $t6
-
-    addi $t5, $t5, 4
-    lb $t6, 0($t5)
-    sub $t6, $t6, $t2    # T[7][j]
-    abs $t6, $t6
-    add $t4, $t4, $t6
+    lbu $a0, 28($t8)
+    sub $a0, $a0, $t7    # T[7][j]
+    abs $a0, $a0
+    add $v0, $v0, $a0
 
     # Store SAD in error buffer
-    mul $t3, $t1, $s1    # y * width
-    add $t3, $t3, $t2    # (y * width + x)
-    sll $t3, $t3, 2      # Convert to byte offset
-    add $t3, $t3, $s4    # Address in error buffer
-    sw $t4, 0($t3)       # Store SAD
+    sw $v0, 0($t9)       # Store SAD
 
     # Increment x
-    addi $t2, $t2, 1
+    addi $s7, $s7, 1
     j inner_x_loop
 
 next_y_fast:
+    addi $s1, $s1, 8
     # Increment y
-    addi $t1, $t1, 1
+    addi $s6, $s6, 1
     j inner_y_loop
 
 next_row_fast:
+    addi $s2, $s2, 8
     # Increment template row (j)
-    addi $t0, $t0, 1
+    addi $s5, $s5, 1
     j row_loop_fast
 
 fast_done:
-    # Restore return address and return
-    lw $ra, 0($sp)
-    addi $sp, $sp, 4
+    lw $a0, 0($sp)
+    lw $a1, 4($sp)
+    lw $a2, 8($sp)
+    lw $v0, 12($sp)
+    addi $sp, $sp, 16
+
     jr $ra
 
 
