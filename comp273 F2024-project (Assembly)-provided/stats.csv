@@ -1,7 +1,7 @@
-# Group Number, Case,        InstCnt, MemAccess, Misses, MicroSeconds
-26,   NaiveFA,0,0,0,0
-26,   Naive2Way,0,0,0,0
-26,   NaiveDirect,0,0,0,0
-26,   FastFA,0,0,0,0
-26,   Fast2Way,0,0,0,0
-26,   FastDirect,0,0,0,0
+# Group Number, Case,        InstCnt,     MemAccess,     Misses,    MicroSeconds
+  19,           NaiveFA,     0,           0,             0,         0
+  19,           Naive2Way,   0,           0,             0,         0
+  19,           NaiveDirect, 6722186,     586310,        228450,    IDK
+  19,           FastFA,      0,           0,             0,         0
+  19,           Fast2Way,    0,           0,             0,         0
+  19,           FastDirect,  2764524,     363677,        72815,     IDK
