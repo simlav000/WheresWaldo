@@ -21,6 +21,13 @@
 #	error_index = (0x10040000/16) mod (8) = 0
 #
 #	Thus both base addresses map to the same cache index of 0.
+#
+#    2) Yes, it does matter. We can add a `.space` directive in between the 
+#	displayBuffer and errorBuffer memory allocations to change the 
+#	errorBuffer cache index to something other than 0 for better results.
+#	In practice, no such directive results in the templateMatchFast 
+#	having a cache hit rate of 75% while reserving space as is done below
+#	results in a hit rate of 80%
 .data
 displayBuffer:  .space 0x40000 # space for 512x256 bitmap display 
 		.space 32      # Align errorBuffer to block index 2 to avoid cache conflicts
@@ -41,7 +48,7 @@ main:	la $a0, imageBufferInfo
 	la $a0, imageBufferInfo
 	la $a1, templateBufferInfo
 	la $a2, errorBufferInfo
-	jal matchTemplateFast    # MATCHING DONE HERE
+	jal matchTemplate    # MATCHING DONE HERE
 	la $a0, errorBufferInfo
 	jal findBest
 	la $a0, imageBufferInfo
@@ -194,7 +201,7 @@ inner_y_loop:
 
     # Iterate over x
     li $s7, 0            # x = 0
-inner_x_loop:
+inner_x_loop_fast:
     subi $s1, $s1, 8
     bgt $s7, $s1, next_y_fast # Exit if x > width - 8
     addi $s1, $s1, 8
@@ -259,7 +266,7 @@ inner_x_loop:
 
     # Increment x
     addi $s7, $s7, 1
-    j inner_x_loop
+    j inner_x_loop_fast
 
 next_y_fast:
     addi $s1, $s1, 8
