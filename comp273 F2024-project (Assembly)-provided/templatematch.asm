@@ -1,5 +1,5 @@
 # Group #19
-#
+#Simon Lavoie 261051325
 #Kemal Baran Dursun 261137885
 # ANSWERS TO PART 3:
 #    1) Yes, it is indeed the case that the base addresses of the image and
