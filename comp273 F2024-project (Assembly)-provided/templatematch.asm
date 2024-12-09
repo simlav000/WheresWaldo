@@ -4,10 +4,9 @@
 # ANSWERS TO PART 3:
 #    1) Yes, it is indeed the case that the base addresses of the image and
 #       error buffer fall into the same block of the direct mapped cache.
-#       If we assume that the .data segment starts at a base address
-#       0x10000000 (I think this is the default though it does not matter)
-#       then displayBuffer has address 0x10000000 while errorBuffer has 
-#	address 0x10040000. Thus, we can compute their cache index using:
+#       Since the .data segment starts at a base address 0x10010000 then 
+#       displayBuffer has address 0x10010000 while errorBuffer has 
+#	address 0x10050000. Thus, we can compute their cache index using:
 #	
 #	Cache_index = (Address/BlockSize) mod (NumberOfCacheBlocks)
 #
@@ -16,11 +15,11 @@
 #	NumberOfCacheBlocks = 8
 #	Which for the display buffer would be:
 #	
-#	image_index = (0x10000000/16) mod (8) = 0
+#	image_index = (0x10010000/16) mod (8) = 0
 #
 #	And for the error buffer it would be:
 #
-#	error_index = (0x10040000/16) mod (8) = 0
+#	error_index = (0x10050000/16) mod (8) = 0
 #
 #	Thus both base addresses map to the same cache index of 0.
 #
