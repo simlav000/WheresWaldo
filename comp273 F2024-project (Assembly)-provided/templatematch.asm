@@ -1,4 +1,4 @@
-# Group #
+# Group #19
 # ANSWERS TO PART 3:
 #    1) Yes, it is indeed the case that the base addresses of the image and
 #       error buffer fall into the same block of the direct mapped cache.
