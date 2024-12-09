@@ -1,7 +1,7 @@
 # Group Number, Case,        InstCnt,     MemAccess,     Misses,    MicroSeconds
-  19,           NaiveFA,     6722186,     586310,        177204,    IDK
-  19,           Naive2Way,   6722186,     586310,        177204,    IDK
-  19,           NaiveDirect, 6722186,     586310,        228450,    IDK
-  19,           FastFA,      2764524,     363677,        18383,     IDK
-  19,           Fast2Way,    2764524,     363677,        18383,     IDK
-  19,           FastDirect,  2764524,     363677,        72815,     IDK
+  19,           NaiveFA,     6722186,     586310,        177204,    24443
+  19,           Naive2Way,   6722186,     586310,        177204,    24443
+  19,           NaiveDirect, 6722186,     586310,        228450,    29567
+  19,           FastFA,      2764524,     363677,        18383,     4603
+  19,           Fast2Way,    2764524,     363677,        18383,     4603
+  19,           FastDirect,  2764524,     363677,        72815,     10046
